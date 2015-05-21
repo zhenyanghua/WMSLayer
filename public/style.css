@@ -1,0 +1,10 @@
+html, body {
+	font-family: Verdana;
+	font-size: 10pt;
+	margin: 0;
+	padding: 0;
+	height: 100%;
+}
+#map-canvas {
+	height: 100%;	
+}

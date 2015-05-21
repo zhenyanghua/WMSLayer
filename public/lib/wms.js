@@ -1,16 +1,3 @@
-/* 
-    Document   	: wms.js
-
-	Modified on : 18 Nov 2012
-	By			: "Sean Maday <seanmaday@gmail.com>"
-
-    Created on 	: Feb 16, 2011
-    Author     	: "Gavin Jackson <Gavin.Jackson@csiro.au>"
-    URL			: http://www.jacksondogphotography.com/googlewms/
-
-    Refactored code from http://lyceum.massgis.state.ma.us/wiki/doku.php?id=googlemapsv3:home
-*/
-
 function bound(value, opt_min, opt_max) {
     if (opt_min != null) value = Math.max(value, opt_min);
     if (opt_max != null) value = Math.min(value, opt_max);
@@ -47,6 +34,15 @@ MercatorProjection.prototype.fromLatLngToPoint = function(latLng, opt_point) {
     return point;
 };
 
+MercatorProjection.prototype.fromPointToLatLng = function(point) {
+    var me = this;
+    var origin = me.pixelOrigin_;
+    var lng = (point.x - origin.x) / me.pixelsPerLonDegree_;
+    var latRadians = (point.y - origin.y) / -me.pixelsPerLonRadian_;
+    var lat = radiansToDegrees(2 * Math.atan(Math.exp(latRadians)) - Math.PI / 2);
+    return new google.maps.LatLng(lat, lng);
+};
+
 MercatorProjection.prototype.fromDivPixelToLatLng = function(pixel, zoom) {
     var me = this;
 
@@ -62,6 +58,14 @@ MercatorProjection.prototype.fromDivPixelToSphericalMercator = function(pixel, z
     var me = this;
     var coord = me.fromDivPixelToLatLng(pixel, zoom);
 
+    var r= 6378137.0;
+    var x = r* degreesToRadians(coord.lng());
+    var latRad = degreesToRadians(coord.lat());
+    var y = (r/2) * Math.log((1+Math.sin(latRad))/ (1-Math.sin(latRad)));
+
+    return new google.maps.Point(x,y);
+};
+MercatorProjection.prototype.fromLatLngToSphericalMercator = function(coord) {
     var r= 6378137.0;
     var x = r* degreesToRadians(coord.lng());
     var latRad = degreesToRadians(coord.lat());
@@ -100,11 +104,11 @@ function loadWMS(map, baseURL, customParams) {
             return urlResult;
         },
 
-        tileSize: new google.maps.Size(tileHeight, tileWidth),
+        tileSize: new google.maps.Size(tileSize, tileSize),
 
         minZoom: minZoomLevel,
         maxZoom: maxZoomLevel,
-        opacity: parseFloat(opacityLevel),
+        opacity: 1,
         isPng: isPng
     };
 
@@ -112,4 +116,53 @@ function loadWMS(map, baseURL, customParams) {
 
     //map.overlayMapTypes.insertAt(0, overlayWMS);
 	map.overlayMapTypes.setAt(0, overlayWMS);
+}
+
+function getFeatureInfo(e) {
+    
+    var numTiles = 1 << map.getZoom();
+    var projection = new MercatorProjection();
+    var worldCoordinate = projection.fromLatLngToPoint(e.latLng);
+    var pixelCoordinate = new google.maps.Point(
+        worldCoordinate.x * numTiles,
+        worldCoordinate.y * numTiles);
+    var tileCoordinate = new google.maps.Point(
+        Math.floor(pixelCoordinate.x / tileSize),
+        Math.floor(pixelCoordinate.y / tileSize));
+
+    // Get the Pixel Postion in a tile
+    var tilePixel = new google.maps.Point(
+        Math.floor(pixelCoordinate.x % tileSize),
+        Math.floor(pixelCoordinate.y % tileSize)
+        );
+
+    // get the extent of the tile
+    var minPixelX = pixelCoordinate.x - tilePixel.x;
+    var minPixelY = pixelCoordinate.y - tilePixel.y;
+    var maxPixelX = minPixelX + tileSize;
+    var maxPixelY = minPixelY + tileSize;
+
+    //  get Southwest and Northeast corner in Pixel
+    var pixelSW = new google.maps.Point(minPixelX / numTiles, maxPixelY / numTiles);
+    var pixelNE = new google.maps.Point(maxPixelX / numTiles, minPixelY / numTiles);
+    
+    // Convert two corners to LatLng
+    var sw = projection.fromPointToLatLng(pixelSW);
+    var ne = projection.fromPointToLatLng(pixelNE);
+
+    // Convert two corners from WGS84 (degree) tp ShepricalMercator (meter)
+    var SW_SphericalMercator = projection.fromLatLngToSphericalMercator(sw);
+    var NE_SphericalMercator = projection.fromLatLngToSphericalMercator(ne);
+
+    // Get the minX, minY, maxX & maxY for the bbox
+    var minX = SW_SphericalMercator.x;
+    var minY = SW_SphericalMercator.y;
+    var maxX = NE_SphericalMercator.x;
+    var maxY = NE_SphericalMercator.y;
+
+    var tileBBox = "&bbox=" + minX + "," + minY + "," + maxX + "," + maxY;
+    var queryURL = WMSURL + queryParams.join('&') + tileBBox + '&X=' + tilePixel.x + '&Y=' + tilePixel.y;
+    
+    return queryURL;
+    
 }
